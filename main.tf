@@ -1,24 +1,27 @@
+resource "random_id" "server" {
+  byte_length = 8
+}
 resource "azurerm_resource_group" "test" {
-  name     = "${var.prefix}-test-resources"
+  name     = "${var.prefix}-${random_id.server.hex}test-resources"
   location = "${var.region}"
 }
 
 resource "azurerm_virtual_network" "test" {
-  name                = "${var.prefix}-chek-test-network"
+  name                = "${var.prefix}-${random_id.server.hex}chek-test-network"
   address_space       = ["10.0.0.0/16"]
   location            = "${azurerm_resource_group.test.location}"
   resource_group_name = "${azurerm_resource_group.test.name}"
 }
 
 resource "azurerm_subnet" "test" {
-  name                 = "${var.prefix}-acctsub"
+  name                 = "${var.prefix}-${random_id.server.hex}acctsub"
   resource_group_name  = "${azurerm_resource_group.test.name}"
   virtual_network_name = "${azurerm_virtual_network.test.name}"
   address_prefix       = "10.0.2.0/24"
 }
 
 resource "azurerm_public_ip" "test" {
-  name                    = "${var.prefix}-check-test-pip"
+  name                    = "${var.prefix}-${random_id.server.hex}check-test-pip"
   location                = "${azurerm_resource_group.test.location}"
   resource_group_name     = "${azurerm_resource_group.test.name}"
   allocation_method       = "Dynamic"
@@ -30,7 +33,7 @@ resource "azurerm_public_ip" "test" {
 }
 
 resource "azurerm_network_interface" "test" {
-  name                = "${var.prefix}-check-test-nic"
+  name                = "${var.prefix}-${random_id.server.hex}check-test-nic"
   location            = "${azurerm_resource_group.test.location}"
   resource_group_name = "${azurerm_resource_group.test.name}"
 
@@ -44,7 +47,7 @@ resource "azurerm_network_interface" "test" {
 }
 
 resource "azurerm_virtual_machine" "test" {
-  name                  = "${var.prefix}-mathur-shweta-vm"
+  name                  = "${var.prefix}-${random_id.server.hex}mathur-shweta-vm"
   location              = "${azurerm_resource_group.test.location}"
   resource_group_name   = "${azurerm_resource_group.test.name}"
   network_interface_ids = ["${azurerm_network_interface.test.id}"]
