@@ -1,88 +1,140 @@
 resource "random_id" "server" {
   byte_length = 8
 }
-resource "azurerm_resource_group" "test" {
-  name     = "${var.prefix}-${random_id.server.hex}test-resources"
+
+resource "azurerm_resource_group" "rg" {
+  name     = "${var.resource_group}-${random_id.server.hex}"
   location = "${var.region}"
 }
 
-resource "azurerm_virtual_network" "test" {
-  name                = "${var.prefix}-${random_id.server.hex}chek-test-network"
-  address_space       = ["10.0.0.0/16"]
-  location            = "${azurerm_resource_group.test.location}"
-  resource_group_name = "${azurerm_resource_group.test.name}"
+resource "azurerm_storage_account" "stor" {
+  name                     = "stor${random_id.server.hex}"
+  location                 = "${var.region}"
+  resource_group_name      = "${azurerm_resource_group.rg.name}"
+  account_tier             = "${var.storage_account_tier}"
+  account_replication_type = "${var.storage_replication_type}"
 }
 
-resource "azurerm_subnet" "test" {
-  name                 = "${var.prefix}-${random_id.server.hex}acctsub"
-  resource_group_name  = "${azurerm_resource_group.test.name}"
-  virtual_network_name = "${azurerm_virtual_network.test.name}"
-  address_prefix       = "10.0.2.0/24"
+resource "azurerm_availability_set" "avset" {
+  name                         = "avset${random_id.server.hex}"
+  location                     = "${var.region}"
+  resource_group_name          = "${azurerm_resource_group.rg.name}"
+  platform_fault_domain_count  = 2
+  platform_update_domain_count = 2
+  managed                      = true
 }
 
-resource "azurerm_public_ip" "test" {
-  name                    = "${var.prefix}-${random_id.server.hex}check-test-pip"
-  location                = "${azurerm_resource_group.test.location}"
-  resource_group_name     = "${azurerm_resource_group.test.name}"
-  allocation_method       = "Dynamic"
-  idle_timeout_in_minutes = 30
+resource "azurerm_public_ip" "lbpip" {
+  name                = "${random_id.server.hex}-ip"
+  location            = "${var.region}"
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+  allocation_method   = "Dynamic"
+  domain_name_label   = "lb${random_id.server.hex}"
+}
 
-  tags = {
-    environment = "test"
+resource "azurerm_virtual_network" "vnet" {
+  name                = "${random_id.server.hex}${var.virtual_network_name}"
+  location            = "${var.region}"
+  address_space       = ["${var.address_space}"]
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+}
+
+resource "azurerm_subnet" "subnet" {
+  name                 = "subnet${random_id.server.hex}"
+  virtual_network_name = "${azurerm_virtual_network.vnet.name}"
+  resource_group_name  = "${azurerm_resource_group.rg.name}"
+  address_prefix       = "${var.subnet_prefix}"
+}
+
+resource "azurerm_lb" "lb" {
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+  name                = "lb${random_id.server.hex}"
+  location            = "${var.region}"
+
+  frontend_ip_configuration { 
+    name                 = "LoadBalancerFrontEnd"
+    public_ip_address_id = "${azurerm_public_ip.lbpip.id}"
   }
 }
 
-resource "azurerm_network_interface" "test" {
-  name                = "${var.prefix}-${random_id.server.hex}check-test-nic"
-  location            = "${azurerm_resource_group.test.location}"
-  resource_group_name = "${azurerm_resource_group.test.name}"
+resource "azurerm_lb_backend_address_pool" "backend_pool" {
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+  loadbalancer_id     = "${azurerm_lb.lb.id}"
+  name                = "BackendPool${random_id.server.hex}"
+}
+
+
+
+resource "azurerm_lb_rule" "lb_rule" {
+  resource_group_name            = "${azurerm_resource_group.rg.name}"
+  loadbalancer_id                = "${azurerm_lb.lb.id}"
+  name                           = "LBRule${random_id.server.hex}"
+  protocol                       = "tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+  enable_floating_ip             = false
+  backend_address_pool_id        = "${azurerm_lb_backend_address_pool.backend_pool.id}"
+  idle_timeout_in_minutes        = 5
+  probe_id                       = "${azurerm_lb_probe.lb_probe.id}"
+  depends_on                     = ["azurerm_lb_probe.lb_probe"]
+}
+
+resource "azurerm_lb_probe" "lb_probe" {
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+  loadbalancer_id     = "${azurerm_lb.lb.id}"
+  name                = "tcpProbe${random_id.server.hex}"
+  protocol            = "tcp"
+  port                = 80
+  interval_in_seconds = 5
+  number_of_probes    = "${var.vm_count_per_subnet}"
+}
+
+resource "azurerm_network_interface" "nic" {
+  name                = "nic${count.index}${random_id.server.hex}"
+  location            = "${var.region}"
+  resource_group_name = "${azurerm_resource_group.rg.name}"
+  count               = "${var.vm_count_per_subnet}"
 
   ip_configuration {
-    name                          = "testconfiguration1"
-    subnet_id                     = "${azurerm_subnet.test.id}"
-    private_ip_address_allocation = "Static"
-    private_ip_address            = "10.0.2.5"
-    public_ip_address_id          = "${azurerm_public_ip.test.id}"
+    name                                    = "ipconfig${count.index}${random_id.server.hex}"
+    subnet_id                               = "${azurerm_subnet.subnet.id}"
+    private_ip_address_allocation           = "Dynamic"
+    load_balancer_backend_address_pools_ids = ["${azurerm_lb_backend_address_pool.backend_pool.id}"] 
   }
 }
 
-resource "azurerm_virtual_machine" "test" {
-  name                  = "${var.prefix}-${random_id.server.hex}mathur-shweta-vm"
-  location              = "${azurerm_resource_group.test.location}"
-  resource_group_name   = "${azurerm_resource_group.test.name}"
-  network_interface_ids = ["${azurerm_network_interface.test.id}"]
-  vm_size               = "Standard_DS1_v2"
+resource "azurerm_virtual_machine" "vm" {
+  name                  = "vm${count.index}${random_id.server.hex}"
+  location              = "${var.region}"
+  resource_group_name   = "${azurerm_resource_group.rg.name}"
+  availability_set_id   = "${azurerm_availability_set.avset.id}"
+  vm_size               = "${var.vm_size}"
+  network_interface_ids = ["${element(azurerm_network_interface.nic.*.id, count.index)}"]
+  count                 = "${var.vm_count_per_subnet}"
 
   storage_image_reference {
-    publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "16.04-LTS"
-    version   = "latest"
+    publisher = "${var.image_publisher}"
+    offer     = "${var.image_offer}"
+    sku       = "${var.image_sku}"
+    version   = "${var.image_version}"
   }
+
   storage_os_disk {
-    name              = "check-myosdisk1"
-    caching           = "ReadWrite"
-    create_option     = "FromImage"
-    managed_disk_type = "Standard_LRS"
+    name          = "osdisk${count.index}${random_id.server.hex}"
+    create_option = "FromImage"
   }
+
   os_profile {
-    computer_name  = "hostname"
-    admin_username = "testadmin"
-    admin_password = "Password1234!"
+    computer_name  = "${var.hostname}"
+    admin_username = "${var.admin_username}"
+    admin_password = "${var.admin_password}"
   }
-  os_profile_linux_config {
-    disable_password_authentication = false
-  }
-  tags = {
-    environment = "staging"
-  }
+
+  os_profile_windows_config {}
+tags ={
+Environment="${var.environment}"
+}
 }
 
-data "azurerm_public_ip" "test" {
-  name                = "${azurerm_public_ip.test.name}"
-  resource_group_name = "${azurerm_virtual_machine.test.resource_group_name}"
-}
 
-output "public_ip_address" {
-  value = "${data.azurerm_public_ip.test.ip_address}"
-}
