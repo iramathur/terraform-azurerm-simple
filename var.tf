@@ -96,3 +96,7 @@ variable "environment" {
   description = "tag name for vm"
 }
 
+variable "environment12" {
+  description = "tag name for vm"
+}
+
